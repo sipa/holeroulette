@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """TCP hole-punching rendezvous server."""
 
+import argparse
 import json
 import math
 import random
@@ -28,23 +29,38 @@ def send_msg(sock, obj):
 
 
 def main():
-    if len(sys.argv) > 2:
-        print(f"Usage: {sys.argv[0]} [port]", file=sys.stderr)
-        sys.exit(1)
+    ap = argparse.ArgumentParser(description="TCP hole-punching rendezvous server")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("-4", dest="ipv4", action="store_true", help="IPv4 only")
+    g.add_argument("-6", dest="ipv6", action="store_true", help="IPv6 only")
+    ap.add_argument("port", nargs="?", type=int, default=57996)
+    args = ap.parse_args()
 
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 57996
+    port = args.port
 
-    try:
-        srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        srv.bind(("::", port))
-        print(f"Listening on [::]:{port} (dual-stack)")
-    except OSError:
+    if args.ipv4:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("", port))
-        print(f"Listening on 0.0.0.0:{port} (IPv4-only)")
+        print(f"Listening on 0.0.0.0:{port} (IPv4)")
+    elif args.ipv6:
+        srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        srv.bind(("::", port))
+        print(f"Listening on [::]:{port} (IPv6)")
+    else:
+        try:
+            srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            srv.bind(("::", port))
+            print(f"Listening on [::]:{port} (dual-stack)")
+        except OSError:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(("", port))
+            print(f"Listening on 0.0.0.0:{port} (IPv4-only fallback)")
 
     srv.listen(128)
     srv.setblocking(False)

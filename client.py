@@ -2,6 +2,7 @@
 """TCP hole-punching client — connects via rendezvous server, then
 performs simultaneous-open and enters bidirectional chat (like nc)."""
 
+import argparse
 import json
 import os
 import socket
@@ -15,20 +16,31 @@ def log(tag, msg):
 
 
 def main():
-    if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print(f"Usage: {sys.argv[0]} <server> [port]", file=sys.stderr)
-        sys.exit(1)
+    ap = argparse.ArgumentParser(description="TCP hole-punching client")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("-4", dest="ipv4", action="store_true", help="IPv4 only")
+    g.add_argument("-6", dest="ipv6", action="store_true", help="IPv6 only")
+    ap.add_argument("server", help="server address (IPv4, IPv6, or DNS name)")
+    ap.add_argument("port", nargs="?", type=int, default=57996)
+    args = ap.parse_args()
 
-    server_host = sys.argv[1]
-    server_port = int(sys.argv[2]) if len(sys.argv) > 2 else 57996
+    server_host = args.server
+    server_port = args.port
 
     if server_host.startswith("[") and server_host.endswith("]"):
         server_host = server_host[1:-1]
 
+    if args.ipv4:
+        af = socket.AF_INET
+    elif args.ipv6:
+        af = socket.AF_INET6
+    else:
+        af = socket.AF_UNSPEC
+
     stag = server_host
 
     # ── Phase 1: connect to rendezvous server ───────────────────
-    infos = socket.getaddrinfo(server_host, server_port, socket.AF_UNSPEC,
+    infos = socket.getaddrinfo(server_host, server_port, af,
                                socket.SOCK_STREAM)
     if not infos:
         log(stag, f"Cannot resolve {server_host}")
