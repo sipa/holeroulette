@@ -3,6 +3,7 @@
 performs simultaneous-open and enters bidirectional chat (like nc)."""
 
 import argparse
+from datetime import datetime
 import json
 import os
 import socket
@@ -12,7 +13,8 @@ import time
 
 
 def log(tag, msg):
-    print(f"[{tag}] {msg}", flush=True)
+    ts = datetime.now().strftime("%H:%M:%S.%f")
+    print(f"{ts} {tag} {msg}", flush=True)
 
 
 def main():
@@ -37,7 +39,7 @@ def main():
     else:
         af = socket.AF_UNSPEC
 
-    stag = server_host
+    stag = f"SERVER[{server_host}]"
 
     # ── Phase 1: connect to rendezvous server ───────────────────
     infos = socket.getaddrinfo(server_host, server_port, af,
@@ -97,7 +99,7 @@ def main():
     peer_ip, peer_port = peer
     if peer_ip.startswith("::ffff:"):
         peer_ip = peer_ip[7:]
-    ptag = peer_ip
+    ptag = f"PEER[{peer_ip}]"
 
     peer_ai = socket.getaddrinfo(peer_ip, peer_port, socket.AF_UNSPEC,
                                  socket.SOCK_STREAM)
