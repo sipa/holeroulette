@@ -15,12 +15,12 @@ def log(tag, msg):
 
 
 def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <server> <port>", file=sys.stderr)
+    if len(sys.argv) < 2 or len(sys.argv) > 3:
+        print(f"Usage: {sys.argv[0]} <server> [port]", file=sys.stderr)
         sys.exit(1)
 
     server_host = sys.argv[1]
-    server_port = int(sys.argv[2])
+    server_port = int(sys.argv[2]) if len(sys.argv) > 2 else 57996
 
     if server_host.startswith("[") and server_host.endswith("]"):
         server_host = server_host[1:-1]

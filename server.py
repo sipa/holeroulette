@@ -28,11 +28,11 @@ def send_msg(sock, obj):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <port>", file=sys.stderr)
+    if len(sys.argv) > 2:
+        print(f"Usage: {sys.argv[0]} [port]", file=sys.stderr)
         sys.exit(1)
 
-    port = int(sys.argv[1])
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 57996
 
     try:
         srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
