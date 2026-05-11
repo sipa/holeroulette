@@ -2,6 +2,7 @@
 """TCP hole-punching rendezvous server."""
 
 import argparse
+from collections import defaultdict
 import json
 import math
 import random
@@ -100,13 +101,22 @@ def main():
                     if n:
                         print(f"pool={n} pairs={k}")
 
-                    items = list(clients.items())
-                    random.shuffle(items)
+                    by_ip = defaultdict(list)
+                    for fd, (s, a) in clients.items():
+                        by_ip[a[0]].append((fd, s, a))
+                    for g in by_ip.values():
+                        random.shuffle(g)
 
                     paired = set()
-                    for i in range(k):
-                        fd_a, (sa, aa) = items[2 * i]
-                        fd_b, (sb, ab) = items[2 * i + 1]
+                    for _ in range(k):
+                        groups = sorted(
+                            (g for g in by_ip.values() if g),
+                            key=len, reverse=True,
+                        )
+                        if len(groups) < 2:
+                            break
+                        fd_a, sa, aa = groups[0].pop()
+                        fd_b, sb, ab = groups[1].pop()
                         print(f"  {aa[0]}:{aa[1]} <-> {ab[0]}:{ab[1]}")
                         send_msg(sa, {"type": "punch", "peer": list(ab)})
                         send_msg(sb, {"type": "punch", "peer": list(aa)})
