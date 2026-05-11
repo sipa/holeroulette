@@ -87,7 +87,7 @@ def main():
         peer_ip = peer_ip[7:]
     ptag = peer_ip
 
-    peer_ai = socket.getaddrinfo(peer_ip, peer_port, family,
+    peer_ai = socket.getaddrinfo(peer_ip, peer_port, socket.AF_UNSPEC,
                                  socket.SOCK_STREAM)
     if not peer_ai:
         log(ptag, "Cannot resolve peer address")
