@@ -6,15 +6,34 @@ import argparse
 from datetime import datetime
 import json
 import os
+import re
 import socket
 import sys
 import threading
 import time
 
+_CTRL_RE = re.compile(r'[\x00-\x1f\x7f-\x9f]')
+
+
+def sanitize(s):
+    return _CTRL_RE.sub('', str(s))
+
+
+def fmt_addr(ip, port):
+    ip = sanitize(str(ip))
+    if ':' in ip:
+        return f"[{ip}]:{port}"
+    return f"{ip}:{port}"
+
 
 def log(tag, msg):
     ts = datetime.now().strftime("%H:%M:%S.%f")
-    print(f"{ts} {tag} {msg}", flush=True)
+    print(f"{ts} {tag} {sanitize(msg)}", flush=True)
+
+
+def log_peer_msg(tag, msg):
+    ts = datetime.now().strftime("%H:%M:%S.%f")
+    print(f'{ts} {tag} Message: "{sanitize(msg)}"', flush=True)
 
 
 def main():
@@ -48,7 +67,7 @@ def main():
         log(stag, f"Cannot resolve {server_host}")
         sys.exit(1)
     family, stype, proto, _, saddr = infos[0]
-    log(stag, f"Resolved {saddr[0]} port {saddr[1]}")
+    log(stag, f"Resolved {fmt_addr(saddr[0], saddr[1])}")
 
     sock = socket.socket(family, stype, proto)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -83,12 +102,12 @@ def main():
             line, buf = buf.split(b"\n", 1)
             msg = json.loads(line)
             if msg["type"] == "welcome":
-                log(stag, f"Public address: {msg['you'][0]}:{msg['you'][1]}")
+                log(stag, f"Public address: {fmt_addr(msg['you'][0], msg['you'][1])}")
             elif msg["type"] == "wait":
                 log(stag, "Waiting for a peer...")
             elif msg["type"] == "punch":
                 peer = (msg["peer"][0], msg["peer"][1])
-                log(stag, f"Peer assigned: {peer[0]}:{peer[1]}")
+                log(stag, f"Peer assigned: {fmt_addr(peer[0], peer[1])}")
         if peer:
             break
 
@@ -130,7 +149,7 @@ def main():
             try:
                 s.bind(bnd)
                 s.settimeout(2)
-                log(ptag, f"SYN #{i} -> {peer_ip}:{peer_port}")
+                log(ptag, f"SYN #{i} -> {fmt_addr(peer_ip, peer_port)}")
                 s.connect(paddr)
                 with gate:
                     if not done.is_set():
@@ -164,7 +183,7 @@ def main():
                 if not done.is_set():
                     done.set()
                     winner[0] = conn
-                    log(ptag, f"Inbound connection from {addr[0]}:{addr[1]}")
+                    log(ptag, f"Inbound connection from {fmt_addr(addr[0], addr[1])}")
                 else:
                     conn.close()
         except (OSError, socket.timeout) as e:
@@ -199,9 +218,9 @@ def main():
                 text = partial + data.decode(errors="replace")
                 *lines, partial = text.split("\n")
                 for ln in lines:
-                    log(ptag, ln)
+                    log_peer_msg(ptag, ln)
             if partial:
-                log(ptag, partial)
+                log_peer_msg(ptag, partial)
             log(ptag, "Connection closed by peer")
         except OSError as e:
             log(ptag, f"recv error: {e}")
