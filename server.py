@@ -66,8 +66,12 @@ def main():
     srv.listen(128)
     srv.setblocking(False)
 
-    clients = {}  # fd -> (socket, (ip, port))
+    pool4 = {}  # fd -> (socket, (ip, port))  — IPv4 clients
+    pool6 = {}  # fd -> (socket, (ip, port))  — IPv6 clients
     lock = threading.Lock()
+
+    def is_ipv6(ip):
+        return ":" in ip
 
     def accept_loop():
         while True:
@@ -81,71 +85,78 @@ def main():
                     conn.setblocking(True)
                     conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     addr = normalize_ip(raw)
-                    print(f"+ {addr[0]}:{addr[1]}")
+                    pool = pool6 if is_ipv6(addr[0]) else pool4
+                    tag = "v6" if is_ipv6(addr[0]) else "v4"
+                    print(f"+ {addr[0]}:{addr[1]} ({tag})")
                     if send_msg(conn, {"type": "welcome", "you": list(addr)}):
                         with lock:
-                            clients[conn.fileno()] = (conn, addr)
+                            pool[conn.fileno()] = (conn, addr)
                     else:
                         conn.close()
                 except OSError as e:
                     print(f"accept error: {e}")
+
+    def match_pool(pool, tag):
+        """Run one matching round on a single pool. Called with lock held."""
+        n = len(pool)
+        k = math.floor((n + 2) / 4)
+
+        if n:
+            print(f"{tag}: pool={n} pairs={k}")
+
+        by_ip = defaultdict(list)
+        for fd, (s, a) in pool.items():
+            by_ip[a[0]].append((fd, s, a))
+        for g in by_ip.values():
+            random.shuffle(g)
+
+        paired = set()
+        for _ in range(k):
+            groups = sorted(
+                (g for g in by_ip.values() if g),
+                key=len, reverse=True,
+            )
+            if len(groups) < 2:
+                break
+            fd_a, sa, aa = groups[0].pop()
+            fd_b, sb, ab = groups[1].pop()
+            print(f"  {aa[0]}:{aa[1]} <-> {ab[0]}:{ab[1]}")
+            send_msg(sa, {"type": "punch", "peer": list(ab)})
+            send_msg(sb, {"type": "punch", "peer": list(aa)})
+            for s in (sa, sb):
+                try:
+                    s.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+            paired.add(fd_a)
+            paired.add(fd_b)
+
+        for fd in paired:
+            s, _ = pool.pop(fd)
+            try:
+                s.close()
+            except OSError:
+                pass
+
+        dead = []
+        for fd, (s, a) in pool.items():
+            if not send_msg(s, {"type": "wait"}):
+                dead.append(fd)
+        for fd in dead:
+            s, a = pool.pop(fd)
+            print(f"- {a[0]}:{a[1]}")
+            try:
+                s.close()
+            except OSError:
+                pass
 
     def match_loop():
         while True:
             time.sleep(10)
             try:
                 with lock:
-                    n = len(clients)
-                    k = math.floor((n + 2) / 4)
-
-                    if n:
-                        print(f"pool={n} pairs={k}")
-
-                    by_ip = defaultdict(list)
-                    for fd, (s, a) in clients.items():
-                        by_ip[a[0]].append((fd, s, a))
-                    for g in by_ip.values():
-                        random.shuffle(g)
-
-                    paired = set()
-                    for _ in range(k):
-                        groups = sorted(
-                            (g for g in by_ip.values() if g),
-                            key=len, reverse=True,
-                        )
-                        if len(groups) < 2:
-                            break
-                        fd_a, sa, aa = groups[0].pop()
-                        fd_b, sb, ab = groups[1].pop()
-                        print(f"  {aa[0]}:{aa[1]} <-> {ab[0]}:{ab[1]}")
-                        send_msg(sa, {"type": "punch", "peer": list(ab)})
-                        send_msg(sb, {"type": "punch", "peer": list(aa)})
-                        for s in (sa, sb):
-                            try:
-                                s.shutdown(socket.SHUT_WR)
-                            except OSError:
-                                pass
-                        paired.add(fd_a)
-                        paired.add(fd_b)
-
-                    for fd in paired:
-                        s, _ = clients.pop(fd)
-                        try:
-                            s.close()
-                        except OSError:
-                            pass
-
-                    dead = []
-                    for fd, (s, a) in clients.items():
-                        if not send_msg(s, {"type": "wait"}):
-                            dead.append(fd)
-                    for fd in dead:
-                        s, a = clients.pop(fd)
-                        print(f"- {a[0]}:{a[1]}")
-                        try:
-                            s.close()
-                        except OSError:
-                            pass
+                    match_pool(pool4, "v4")
+                    match_pool(pool6, "v6")
             except Exception as e:
                 print(f"match error: {e}")
 
