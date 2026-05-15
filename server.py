@@ -3,6 +3,7 @@
 
 import argparse
 from collections import defaultdict
+from datetime import datetime
 import json
 import math
 import random
@@ -27,8 +28,9 @@ def fmt_addr(ip, port):
     return f"{ip}:{port}"
 
 
-def log(msg):
-    print(sanitize(msg), flush=True)
+def log(tag, msg):
+    ts = datetime.now().strftime("%H:%M:%S.%f")
+    print(f"{ts} {tag} {sanitize(msg)}", flush=True)
 
 
 def normalize_ip(raw_addr):
@@ -56,29 +58,31 @@ def main():
 
     port = args.port
 
+    ltag = "LISTEN"
+
     if args.ipv4:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind(("", port))
-        log(f"Listening on 0.0.0.0:{port} (IPv4)")
+        log(ltag, f"0.0.0.0:{port} (IPv4)")
     elif args.ipv6:
         srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         srv.bind(("::", port))
-        log(f"Listening on [::]:{port} (IPv6)")
+        log(ltag, f"[::]:{port} (IPv6)")
     else:
         try:
             srv = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             srv.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
             srv.bind(("::", port))
-            log(f"Listening on [::]:{port} (dual-stack)")
+            log(ltag, f"[::]:{port} (dual-stack)")
         except OSError:
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             srv.bind(("", port))
-            log(f"Listening on 0.0.0.0:{port} (IPv4-only fallback)")
+            log(ltag, f"0.0.0.0:{port} (IPv4-only fallback)")
 
     srv.listen(128)
     srv.setblocking(False)
@@ -103,23 +107,25 @@ def main():
                     conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     addr = normalize_ip(raw)
                     pool = pool6 if is_ipv6(addr[0]) else pool4
-                    tag = "v6" if is_ipv6(addr[0]) else "v4"
-                    log(f"+ {fmt_addr(addr[0], addr[1])} ({tag})")
+                    ctag = f"CLIENT[{fmt_addr(addr[0], addr[1])}]"
+                    ver = "v6" if is_ipv6(addr[0]) else "v4"
+                    log(ctag, f"Connected ({ver})")
                     if send_msg(conn, {"type": "welcome", "you": list(addr)}):
                         with lock:
                             pool[conn.fileno()] = (conn, addr)
                     else:
                         conn.close()
                 except OSError as e:
-                    log(f"accept error: {e}")
+                    log(ltag, f"accept error: {e}")
 
-    def match_pool(pool, tag):
+    def match_pool(pool, ver):
         """Run one matching round on a single pool. Called with lock held."""
         n = len(pool)
         k = math.floor((n + 2) / 4)
+        ptag = f"POOL[{ver}]"
 
         if n:
-            log(f"{tag}: pool={n} pairs={k}")
+            log(ptag, f"pool={n} pairs={k}")
 
         by_ip = defaultdict(list)
         for fd, (s, a) in pool.items():
@@ -137,7 +143,7 @@ def main():
                 break
             fd_a, sa, aa = groups[0].pop()
             fd_b, sb, ab = groups[1].pop()
-            log(f"  {fmt_addr(aa[0], aa[1])} <-> {fmt_addr(ab[0], ab[1])}")
+            log(ptag, f"Pair {fmt_addr(aa[0], aa[1])} <-> {fmt_addr(ab[0], ab[1])}")
             send_msg(sa, {"type": "punch", "peer": list(ab)})
             send_msg(sb, {"type": "punch", "peer": list(aa)})
             for s in (sa, sb):
@@ -161,7 +167,7 @@ def main():
                 dead.append(fd)
         for fd in dead:
             s, a = pool.pop(fd)
-            log(f"- {fmt_addr(a[0], a[1])}")
+            log(f"CLIENT[{fmt_addr(a[0], a[1])}]", "Dropped")
             try:
                 s.close()
             except OSError:
@@ -175,7 +181,7 @@ def main():
                     match_pool(pool4, "v4")
                     match_pool(pool6, "v6")
             except Exception as e:
-                log(f"match error: {e}")
+                log("MATCH", f"error: {e}")
 
     threading.Thread(target=accept_loop, daemon=True).start()
     threading.Thread(target=match_loop, daemon=True).start()
@@ -183,7 +189,7 @@ def main():
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
-        log("Shutting down")
+        log(ltag, "Shutting down")
 
 
 if __name__ == "__main__":

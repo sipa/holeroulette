@@ -100,12 +100,16 @@ def main():
         buf += chunk
         while b"\n" in buf:
             line, buf = buf.split(b"\n", 1)
-            msg = json.loads(line)
-            if msg["type"] == "welcome":
+            try:
+                msg = json.loads(line.decode(errors="replace"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                log(stag, f"Bad server message, skipping: {e}")
+                continue
+            if msg.get("type") == "welcome":
                 log(stag, f"Public address: {fmt_addr(msg['you'][0], msg['you'][1])}")
-            elif msg["type"] == "wait":
+            elif msg.get("type") == "wait":
                 log(stag, "Waiting for a peer...")
-            elif msg["type"] == "punch":
+            elif msg.get("type") == "punch":
                 peer = (msg["peer"][0], msg["peer"][1])
                 log(stag, f"Peer assigned: {fmt_addr(peer[0], peer[1])}")
         if peer:
@@ -230,10 +234,10 @@ def main():
 
     try:
         while True:
-            line = sys.stdin.readline()
+            line = sys.stdin.buffer.readline()
             if not line:
                 break
-            peer_sock.sendall(line.encode())
+            peer_sock.sendall(line)
     except KeyboardInterrupt:
         pass
 
